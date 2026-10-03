@@ -12,7 +12,7 @@
     <div class="stat-row">
       <article v-for="card in cards" :key="card.label" class="stat-card">
         <span class="stat-label">{{ card.label }}</span>
-        <strong class="stat-value">{{ card.value }}</strong>
+        <strong class="stat-value">{{ formatCard(card) }}</strong>
       </article>
     </div>
     <table class="data-table">
@@ -47,6 +47,14 @@ function refresh() {
   const payload = loadOverview()
   cards.value = payload.cards
   moduleRows.value = payload.modules
+}
+
+// 首页达标率与室温监测页共用 roomStats 同一份口径；本月还没有报送判定时显示占位。
+function formatCard(card: OverviewResult['cards'][number]): string {
+  if (card.value === null) {
+    return '暂无判定'
+  }
+  return card.label.includes('达标率') ? `${card.value.toFixed(1)}%` : String(card.value)
 }
 
 onMounted(refresh)
