@@ -5,7 +5,7 @@ export type EntryRow = {
   status: string
   pending: boolean
   abnormal: boolean
-  [field: string]: string | number | boolean
+  [field: string]: string | number | boolean | null
 }
 
 export type ModuleMeta = {
@@ -33,6 +33,6 @@ export type ActionResult = {
 }
 
 export type OverviewResult = {
-  cards: { label: string; value: number }[]
+  cards: { label: string; value: number | string }[]
   modules: { name: string; created: number; pending: number; abnormal: number }[]
 }

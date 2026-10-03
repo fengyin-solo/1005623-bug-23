@@ -3,7 +3,9 @@
     <header class="page-head">
       <div>
         <h2>入户服务管理</h2>
-        <p class="page-desc">维护入户服务单，围绕服务单号、报修用户、服务内容、受理人做登记、筛选与状态流转。</p>
+        <p class="page-desc">
+          维护入户服务单；室温监测判定不达标会自动转入待上门清单（状态：已安排），同一监测点重复报送只转一张单。
+        </p>
       </div>
       <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate">登记入户服务单</button>
@@ -29,6 +31,10 @@
         <span>{{ field }}</span>
         <input v-model="filters[field]" :placeholder="`按${field}检索`" />
       </label>
+      <label class="filter-check">
+        <input v-model="pendingVisitOnly" type="checkbox" @change="reload" />
+        <span>只看待上门清单（室温不达标转办）</span>
+      </label>
       <button class="btn" type="submit">查询</button>
       <button class="btn ghost" type="button" @click="resetFilters">重置条件</button>
     </form>
@@ -43,7 +49,12 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td v-for="column in columns" :key="column">
+            <template v-if="column === '服务内容' && row['来源监测点']">
+              <span class="tag-warn">室温转办</span>{{ row[column] }}
+            </template>
+            <template v-else>{{ row[column] === '' ? '—' : (row[column] ?? '—') }}</template>
+          </td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -58,13 +69,13 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 2" class="empty-state">暂无入户服务数据，可先登记入户服务单</td>
+          <td :colspan="columns.length + 2" class="empty-state">暂无入户服务数据，室温不达标判定后会自动进入待上门清单</td>
         </tr>
       </tbody>
     </table>
 
     <footer class="page-foot">
-      <span>共 {{ total }} 条入户服务记录</span>
+      <span>共 {{ total }} 条入户服务记录；待上门 {{ pendingVisitCount }} 条由室温不达标结论驱动</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -75,23 +86,35 @@ import { computed, onMounted, ref } from 'vue'
 
 import {
   downloadEntries,
+  filterRows,
   listEntries,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { pendingVisitRows } from '@/data/roomtemp-domain'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('householdservice')
-const columns = ["服务单号", "报修用户", "服务内容", "受理人", "上门时间", "处理结果", "回访日期", "服务状态"]
-const actions = ["受理报修", "登记处理", "完成回访"]
-const statuses = ["待受理", "已安排", "已处理", "已回访"]
-const stats = [{"label": "待受理服务单", "value": 0}, {"label": "已处理服务单", "value": 0}, {"label": "待回访服务单", "value": 0}]
+const columns = ['服务单号', '报修用户', '服务内容', '受理人', '上门时间', '处理结果', '回访日期', '服务状态']
+const actions = ['受理报修', '登记处理', '完成回访']
+const statuses = ['待受理', '已安排', '已处理', '已回访']
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const pendingVisitOnly = ref(false)
 const filterFields = columns.slice(0, 3)
+
+const pendingVisitCount = computed(() => pendingVisitRows().length)
+
+const stats = computed(() => [
+  { label: '待受理服务单', value: rows.value.filter((row) => String(row.status) === '待受理').length },
+  { label: '待上门清单（室温转办）', value: pendingVisitCount.value },
+  { label: '已处理服务单', value: rows.value.filter((row) => String(row.status) === '已处理').length },
+  { label: '待回访服务单', value: rows.value.filter((row) => String(row.status) === '已回访').length },
+])
+
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -101,6 +124,7 @@ const statusSummary = computed(() =>
 
 function resetFilters() {
   filters.value = {}
+  pendingVisitOnly.value = false
   reload()
 }
 
@@ -125,9 +149,13 @@ function runAction(action: string, row: EntryRow) {
 function reload() {
   errorMessage.value = ''
   try {
-    const payload = listEntries(meta.key, filters.value)
-    rows.value = payload.items
-    total.value = payload.total
+    const all = listEntries(meta.key).items
+    const scoped = pendingVisitOnly.value
+      ? all.filter((row) => String(row['来源监测点'] ?? '') !== '' && String(row.status) === '已安排')
+      : all
+    const items = filterRows(scoped, filters.value)
+    rows.value = items
+    total.value = items.length
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '入户服务列表读取失败'
   }
